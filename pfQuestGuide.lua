@@ -337,6 +337,7 @@ function QG:SelectQuest(id, auto)
   C.quest = entry and id or nil
   C.questtitle = entry and entry.title or nil
   self.accept = nil
+  self.waypoint = nil
   self.focusKey = nil
   self.suspended = nil
   self:Rebuild()
@@ -358,6 +359,7 @@ function QG:SelectAccept(id, title)
     return
   end
   C.quest, C.questtitle = nil, nil
+  self.waypoint = nil
   self.accept = { id = id, title = (loc("quests", id) and loc("quests", id).T) or title }
   self.focusKey = nil
   self.suspended = nil
@@ -442,9 +444,10 @@ function QG:Rebuild()
     end
   end
 
-  if self.quest and not self.arrowActive and not self.suspended then
+  local guiding = self.quest or self.waypoint
+  if guiding and not self.arrowActive and not self.suspended then
     self:AttachArrow()
-  elseif not self.quest and self.arrowActive then
+  elseif not guiding and self.arrowActive then
     self:DetachArrow()
   end
 
@@ -497,11 +500,11 @@ route.SetTarget = function(node, default)
 end
 
 function QG:AttachArrow()
-  if not self.quest then
+  if not self.quest and not self.waypoint then
     return
   end
   self.suspended = nil
-  self.node.title = self.quest.title
+  self.node.title = self.waypoint and self.waypoint.title or self.quest.title
   route.SetTarget(self.node)
   self:UpdateArrow()
 end
@@ -558,26 +561,62 @@ function QG:NearestSpot()
   return bx, by, bsrc
 end
 
-function QG:UpdateArrow()
-  if not self.quest or not self.arrowActive then
-    self:RemoveEntry()
+-- nearest of a TourGuide step's note coordinates on the current map
+function QG:WaypointSpot()
+  local wp = self.waypoint
+  local map = pfMap:GetMapID(GetCurrentMapContinent(), GetCurrentMapZone())
+  local px, py = GetPlayerMapPosition("player")
+  if not map or (px == 0 and py == 0) or (wp.map and wp.map ~= map) then
     return
   end
+  px, py = px * 100, py * 100
 
-  local x, y, src = self:NearestSpot()
-  if not x then
-    -- nothing for this quest on the current map: let pfQuest's normal routing take over
+  local best, bx, by
+  for _, c in ipairs(wp.coords) do
+    local dx, dy = (c[1] - px) * 1.5, c[2] - py
+    local d = dx * dx + dy * dy
+    if not best or d < best then
+      best, bx, by = d, c[1], c[2]
+    end
+  end
+  return bx, by
+end
+
+function QG:UpdateArrow()
+  if not self.arrowActive or (not self.quest and not self.waypoint) then
     self:RemoveEntry()
     return
   end
 
   local node, entry = self.node, self.entry
-  node.title = self.quest.title
-  node.qlvl = self.quest.level
-  node.questid = self.quest.id
-  node.texture = src.tex
-  node.description = src.desc
-  entry[6] = self.quest.id
+  local x, y
+  if self.waypoint then
+    -- a TourGuide step with a spot in its note (travel, "go to", ...)
+    x, y = self:WaypointSpot()
+    node.title = self.waypoint.title
+    node.qlvl = nil
+    node.questid = nil
+    node.texture = TEX_MISC
+    node.description = self.waypoint.desc
+    entry[6] = nil
+  else
+    local src
+    x, y, src = self:NearestSpot()
+    if x then
+      node.title = self.quest.title
+      node.qlvl = self.quest.level
+      node.questid = self.quest.id
+      node.texture = src.tex
+      node.description = src.desc
+      entry[6] = self.quest.id
+    end
+  end
+
+  if not x then
+    -- nothing to point at on the current map: let pfQuest's normal routing take over
+    self:RemoveEntry()
+    return
+  end
 
   local changed = entry[1] ~= x or entry[2] ~= y
   entry[1], entry[2] = x, y
@@ -808,6 +847,32 @@ function QG:FollowingTourGuide()
   return C and C.followtg ~= false and TourGuide and TourGuide.actions and TourGuide.current and true
 end
 
+-- TourGuide's coordinate format: "(30.3, 46.3)"
+local COORD_MATCH = "%(([%d.]+),%s?([%d.]+)%)"
+
+local ACTION_TEXT = {
+  RUN = "Go to ",
+  FLY = "Fly to ",
+  BOAT = "Take the boat to ",
+  HEARTH = "Hearth to ",
+  SETHEARTH = "Set your hearth at ",
+  GETFLIGHTPOINT = "Get the flight path at ",
+  GRIND = "Grind: ",
+}
+
+-- objective (panel step key) a TourGuide step is about: its loot item, or its quest objective text
+local function TourGuideFocus(i)
+  local loot = TourGuide:GetObjectiveTag("L", i)
+  local item = loot and loc("items", tonumber(loot))
+  if item then
+    return item
+  end
+  local objective = TourGuide:GetObjectiveTag("QO", i)
+  if objective then
+    return ParseLeaderBoard(objective)
+  end
+end
+
 -- a quest not in the log yet: the first one with that title pfQuest would offer us
 local function FindQuestID(name)
   local title = gsub(name or "", "%s%(Part %d+%)", "")
@@ -841,21 +906,19 @@ function QG:FollowTourGuide()
     return
   end
 
-  local qname = name
-  if action == "KILL" or action == "NOTE" or action == "USE" or action == "BUY" then
-    qname = TourGuide:GetObjectiveTag("Q", i)
-  elseif action ~= "ACCEPT" and action ~= "COMPLETE" and action ~= "TURNIN" then
-    qname = nil
-  end
-  if not qname then
-    self.tgStep = key
-    return
-  end
+  local tg = TourGuide
+  local questAction = action == "ACCEPT" or action == "COMPLETE" or action == "TURNIN"
+  local objectiveAction = action == "KILL" or action == "NOTE" or action == "USE" or action == "BUY"
+  local qid = tonumber((tg:GetObjectiveTag("QID", i)))
+  local qname = questAction and name or tg:GetObjectiveTag("Q", i)
 
-  local qid = tonumber((TourGuide:GetObjectiveTag("QID", i)))
-  local id = qid and pfQuest.questlog[qid] and qid
-  if not id then
-    local logi = TourGuide:GetQuestLogIndexByName(qname)
+  -- the quest this step is about, if it's in the log
+  local id
+  if (questAction or objectiveAction) and qid and pfQuest.questlog[qid] then
+    id = qid
+  end
+  if not id and (questAction or objectiveAction) and qname then
+    local logi = tg:GetQuestLogIndexByName(qname)
     if logi then
       for questid, entry in pairs(pfQuest.questlog) do
         if entry.qlogid == logi then
@@ -869,16 +932,64 @@ function QG:FollowTourGuide()
   end
 
   self.tgStep = key
+  self.waypoint = nil
+
   if id then
     if C.quest ~= id then
       self:SelectQuest(id, true)
     end
-  elseif action == "ACCEPT" then
+    -- point at the objective this step is about (the item to loot or buy, the mob to kill)
+    self.focusKey = TourGuideFocus(i)
+  elseif action == "ACCEPT" and qname then
     id = qid or FindQuestID(qname)
     if id and not (self.accept and self.accept.id == id) then
       self:SelectAccept(id, qname)
     end
+  else
+    -- travel, hearth, flight points, ...: point at the spot in the step's note, if it has one
+    local note = tg:GetObjectiveTag("N", i)
+    local coords = {}
+    for x, y in compat.gfind(note or "", COORD_MATCH) do
+      insert(coords, { tonumber(x), tonumber(y) })
+    end
+    if coords[1] then
+      local zone = tg:GetObjectiveTag("Z", i) or tg.zonename
+      self.waypoint = {
+        coords = coords,
+        map = zone and pfMap:GetMapIDByName(zone),
+        title = (ACTION_TEXT[action] or "") .. name,
+        desc = gsub(gsub(note, COORD_MATCH, ""), "%s+$", ""),
+      }
+    end
   end
+
+  -- a new step takes the arrow back, even from a node you clicked on the map
+  if self.quest or self.waypoint then
+    self:AttachArrow()
+  end
+  self:Render()
+  self:UpdateArrow()
+end
+
+function QG:WaypointTip()
+  local wp = self.waypoint
+  local tip = "TourGuide: " .. wp.title
+  if wp.desc and wp.desc ~= "" then
+    tip = tip .. "\n|cffaaaaaa" .. wp.desc .. "|r"
+  end
+  return tip .. "\n\nThe arrow points here for this step.\n|cff33ffccClick|r point it at the quest instead."
+end
+
+-- back to the quest's objectives until TourGuide's next step
+function QG:ClearWaypoint()
+  self.waypoint = nil
+  if self.quest then
+    self:AttachArrow()
+  else
+    self:DetachArrow()
+  end
+  self:Render()
+  self:UpdateArrow()
 end
 
 -- [[ panel ]] --
@@ -925,6 +1036,8 @@ local function GetRow(i)
       if this.key == "resume" then
         QG:AttachArrow()
         QG:Render()
+      elseif this.key == "waypoint" then
+        QG:ClearWaypoint()
       elseif this.key then
         QG:ToggleFocus(this.key)
       end
@@ -1011,6 +1124,11 @@ function QG:RenderFull()
     y = y - 15
   end
 
+  if self.waypoint then
+    Row("|cffaaaaff> " .. self.waypoint.title, "waypoint", 0, self:WaypointTip())
+    y = y - 4
+  end
+
   if not self.quest and not self.status then
     Row("|cff888888Alt-click a quest in the tracker", nil, 0)
     Row("|cff888888or quest log to guide it.", nil, 0)
@@ -1078,6 +1196,7 @@ local ICON_ACCEPT = "Interface\\GossipFrame\\AvailableQuestIcon"
 local ICON_OTHER = "Interface\\Icons\\INV_Misc_Bag_08"
 local ICON_STATUS = "Interface\\Icons\\INV_Misc_QuestionMark"
 local ICON_RESUME = "Interface\\Icons\\INV_Misc_Map_01"
+local ICON_WAYPOINT = "Interface\\Icons\\Ability_Tracking"
 
 local icons = {}
 
@@ -1291,6 +1410,8 @@ local function GetIcon(i)
       elseif this.action == "resume" then
         QG:AttachArrow()
         QG:Render()
+      elseif this.action == "waypoint" then
+        QG:ClearWaypoint()
       elseif arg1 == "RightButton" then
         QG:ToggleFocus(this.step.key)
       else
@@ -1337,6 +1458,10 @@ function QG:RenderCompact()
     b:SetPoint("TOPLEFT", QG.bar, "TOPLEFT", (n - 1) * (ICON_SIZE + ICON_GAP), 0)
     b:Show()
     return b
+  end
+
+  if self.waypoint then
+    Icon(ICON_WAYPOINT, nil, "waypoint", self:WaypointTip())
   end
 
   for _, step in ipairs(self.steps or {}) do

@@ -39,7 +39,7 @@ On *Beer Basted Boar Ribs* (Dun Morogh) you'd see:
 
 The guided quest gets a yellow `>` in the pfQuest tracker, and your choice is remembered per character.
 
-**With TourGuide**: if [TourGuideVanilla](https://github.com/cralor/TourGuideVanilla) is installed, pfQuest Guide follows its current step automatically. Quest steps (accept, complete, turn in, and kill/note steps tied to a quest) switch the guided quest. *Accept* steps point the arrow at the quest giver with a **!** icon to target them, and switch to the quest's objectives once you've accepted it. Travel and hearth steps leave the current quest alone. A quest you pick by hand stays until TourGuide moves on to its next step. Turn this off or on with `/pqg tourguide`.
+**With TourGuide**: if [TourGuideVanilla](https://github.com/cralor/TourGuideVanilla) is installed, pfQuest Guide follows its current step automatically. Quest steps (accept, complete, turn in, and kill/note steps tied to a quest) switch the guided quest. *Accept* steps point the arrow at the quest giver with a **!** icon to target them, and switch to the quest's objectives once you've accepted it. Kill, loot and buy steps aim the arrow at the exact objective they're about. Travel, hearth and flight-path steps that have coordinates in their note, like "(30.3, 46.3)", point the arrow there and show a tracking icon. Click that icon to point the arrow back at the quest. Steps without coordinates leave the current quest alone. A quest you pick by hand stays until TourGuide moves on to its next step. Turn this off or on with `/pqg tourguide`.
 
 **Mini view** (default): one icon per objective you still need.
 
