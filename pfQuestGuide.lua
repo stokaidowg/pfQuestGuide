@@ -593,9 +593,28 @@ end
 
 QG.markUsed = {}
 
+-- any mob/NPC behind an objective that isn't done yet (or the turn-in NPC),
+-- including the extra ones that didn't fit on the target buttons
+function QG:IsQuestUnit(name)
+  for _, step in ipairs(self.steps or {}) do
+    if not step.done then
+      for _, src in ipairs(step.sources) do
+        if src.kind == "U" and src.name == name then
+          return true
+        end
+      end
+    end
+  end
+end
+
 function QG:Mark()
   -- mobs and NPCs only: no players, pets or corpses
   if not UnitExists("target") or UnitIsDead("target") or UnitPlayerControlled("target") then
+    return
+  end
+
+  -- and only ones the guided quest still needs
+  if not self:IsQuestUnit(UnitName("target")) then
     return
   end
 

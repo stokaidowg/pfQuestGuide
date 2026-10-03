@@ -6,7 +6,7 @@ Pick one quest and pfQuest Guide takes it from there:
 
 - **The arrow follows that quest.** pfQuest's arrow points at the nearest spot that still matters for it: a mob that drops what you need, the vendor that sells it, or the NPC you turn it in to.
 - **One click targets the quest's mobs and NPCs.** Each objective gets an icon (or a button in the full window) that targets the nearest living, untapped match.
-- **Targets get raid icons.** Every mob or NPC you target is marked automatically: star, circle, diamond, triangle, moon, square, cross, skull. Once all eight are in use, the one used longest ago moves to your new target.
+- **Quest targets get raid icons.** When you target a mob or NPC the guided quest still needs, it's marked automatically: star, circle, diamond, triangle, moon, square, cross, skull. Once all eight are in use, the one used longest ago moves to your new target. Anything unrelated to the quest is left alone.
 
 ## Example
 
