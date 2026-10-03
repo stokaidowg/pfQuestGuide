@@ -1,0 +1,5 @@
+<Bindings>
+  <Binding name="PFQUESTGUIDE_TARGET" header="PFQUESTGUIDE">
+    pfQuestGuide:TargetNext()
+  </Binding>
+</Bindings>
