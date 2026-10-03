@@ -17,6 +17,7 @@ local TEX_ITEM = PATH .. "\\img\\cluster_item"
 local TEX_MISC = PATH .. "\\img\\cluster_misc"
 local TEX_VENDOR = PATH .. "\\img\\icon_vendor"
 local TEX_TURNIN = PATH .. "\\img\\complete_c"
+local TEX_ACCEPT = PATH .. "\\img\\available_c"
 
 -- raid icons handed out by the target buttons, in this order:
 -- 1 star, 2 circle, 3 diamond, 4 triangle, 5 moon, 6 square, 7 cross, 8 skull
@@ -29,6 +30,7 @@ local VERB_COLOR = {
   ["Kill"] = "|cffff6060",
   ["Buy"] = "|cffffcc00",
   ["Turn in"] = "|cff33ffcc",
+  ["Accept"] = "|cffffcc00",
   ["Find"] = "|cff33ffcc",
   ["Loot"] = "|cffaaaaff",
   ["Use"] = "|cffaaaaff",
@@ -266,6 +268,15 @@ local function BuildTurnIn(qdata)
   return step
 end
 
+local function BuildAccept(qdata)
+  local step = NewStep("accept", "|cffffcc00Pick up the quest|r", nil)
+  step.accept = true
+  local qstart = qdata and qdata["start"] or {}
+  AddUnits(step, qstart.U, "Accept", TEX_ACCEPT, "Accept the quest from |cffffcc00%s")
+  AddObjects(step, qstart.O, "Accept", TEX_ACCEPT, "Accept the quest at |cffffcc00%s")
+  return step
+end
+
 -- targetable NPCs of a step, one per name, preferring the current zone and best drop chance
 local function BuildTargets(step, zone)
   local byname, list = {}, {}
@@ -320,10 +331,12 @@ function QG:QuestList()
   return list
 end
 
-function QG:SelectQuest(id)
+-- auto: picked by TourGuide rather than the user, so don't pop the window open
+function QG:SelectQuest(id, auto)
   local entry = id and pfQuest.questlog and pfQuest.questlog[id]
   C.quest = entry and id or nil
   C.questtitle = entry and entry.title or nil
+  self.accept = nil
   self.focusKey = nil
   self.suspended = nil
   self:Rebuild()
@@ -331,9 +344,26 @@ function QG:SelectQuest(id)
 
   if entry then
     self:AttachArrow()
-    C.shown = true
+    if not auto then
+      C.shown = true
+    end
     self:Render()
   end
+end
+
+-- guide to a quest that isn't in the log yet: its quest giver
+function QG:SelectAccept(id, title)
+  local qdata = id and data("quests")[id]
+  if not qdata then
+    return
+  end
+  C.quest, C.questtitle = nil, nil
+  self.accept = { id = id, title = (loc("quests", id) and loc("quests", id).T) or title }
+  self.focusKey = nil
+  self.suspended = nil
+  self:Rebuild()
+  self:RefreshTracker()
+  self:AttachArrow()
 end
 
 function QG:ResolveQuest()
@@ -349,7 +379,10 @@ function QG:ResolveQuest()
 
   -- pfQuest rebuilds its quest log a few seconds after login; only give up once it is running
   if pfQuest.lock and GetTime() > pfQuest.lock + 3 then
-    Print("Stopped guiding |cffffcc00" .. (C.questtitle or "?") .. "|r - it is no longer in your quest log.")
+    -- when following TourGuide, the next step takes over by itself
+    if not self:FollowingTourGuide() then
+      Print("Stopped guiding |cffffcc00" .. (C.questtitle or "?") .. "|r - it is no longer in your quest log.")
+    end
     C.quest, C.questtitle = nil, nil
     self:RefreshTracker()
   else
@@ -362,8 +395,22 @@ function QG:Rebuild()
   self.status = nil
   self.quest = nil
 
+  -- picking up a quest: switch to it as soon as it's in the log
+  local accept = self.accept
+  if accept and pfQuest.questlog and pfQuest.questlog[accept.id] then
+    C.quest, C.questtitle = accept.id, pfQuest.questlog[accept.id].title
+    self.accept, accept = nil, nil
+    self:RefreshTracker()
+  end
+
   local entry = self:ResolveQuest()
-  if entry then
+  if accept and not C.quest then
+    local qdata = data("quests")[accept.id]
+    self.quest = { id = accept.id, title = accept.title, level = qdata and tonumber(qdata.lvl), accept = true }
+    insert(self.steps, BuildAccept(qdata))
+    local zone = pfMap:GetMapIDByName(GetRealZoneText())
+    BuildTargets(self.steps[1], zone)
+  elseif entry then
     local qlogid = entry.qlogid
     local title, level, _, _, _, complete = compat.GetQuestLogTitle(qlogid)
     self.quest = { id = C.quest, title = entry.title, level = tonumber(level), qlogid = qlogid }
@@ -753,6 +800,87 @@ local function HookTracker()
   end
 end
 
+-- [[ TourGuide integration ]] --
+-- Follows TourGuide's current step: quest steps switch the guided quest, "accept"
+-- steps guide to the quest giver, and travel/hearth steps leave things alone.
+-- A quest picked by hand stays until TourGuide moves on to its next step.
+function QG:FollowingTourGuide()
+  return C and C.followtg ~= false and TourGuide and TourGuide.actions and TourGuide.current and true
+end
+
+-- a quest not in the log yet: the first one with that title pfQuest would offer us
+local function FindQuestID(name)
+  local title = gsub(name or "", "%s%(Part %d+%)", "")
+  local _, race = UnitRace("player")
+  local _, class = UnitClass("player")
+  local prace, pclass = pfDatabase:GetBitByRace(race), pfDatabase:GetBitByClass(class)
+  local quests, fallback = data("quests"), nil
+  for id, l in pairs(pfDB["quests"]["loc"]) do
+    if l.T == title and quests[id] then
+      fallback = fallback or id
+      if pfDatabase:QuestFilter(id, UnitLevel("player"), pclass, prace) then
+        return id
+      end
+    end
+  end
+  return fallback
+end
+
+function QG:FollowTourGuide()
+  if not self:FollowingTourGuide() then
+    return
+  end
+
+  local i = TourGuide.current
+  local action, name = TourGuide:GetObjectiveInfo(i)
+  if not action then
+    return
+  end
+  local key = i .. action .. (name or "")
+  if key == self.tgStep then
+    return
+  end
+
+  local qname = name
+  if action == "KILL" or action == "NOTE" or action == "USE" or action == "BUY" then
+    qname = TourGuide:GetObjectiveTag("Q", i)
+  elseif action ~= "ACCEPT" and action ~= "COMPLETE" and action ~= "TURNIN" then
+    qname = nil
+  end
+  if not qname then
+    self.tgStep = key
+    return
+  end
+
+  local qid = tonumber((TourGuide:GetObjectiveTag("QID", i)))
+  local id = qid and pfQuest.questlog[qid] and qid
+  if not id then
+    local logi = TourGuide:GetQuestLogIndexByName(qname)
+    if logi then
+      for questid, entry in pairs(pfQuest.questlog) do
+        if entry.qlogid == logi then
+          id = questid
+        end
+      end
+      if not id then
+        return -- in the quest log, but pfQuest hasn't caught up yet: retry on the next tick
+      end
+    end
+  end
+
+  self.tgStep = key
+  if id then
+    if C.quest ~= id then
+      self:SelectQuest(id, true)
+    end
+  elseif action == "ACCEPT" then
+    id = qid or FindQuestID(qname)
+    if id and not (self.accept and self.accept.id == id) then
+      self:SelectAccept(id, qname)
+    end
+  end
+end
+
 -- [[ panel ]] --
 local function Backdrop(frame)
   if pfUI and pfUI.api and pfUI.api.CreateBackdrop and not pfUI.api.emulated then
@@ -946,6 +1074,7 @@ local ICON_GAP = 3
 local ICON_KILL = "Interface\\Icons\\INV_Sword_04"
 local ICON_BUY = "Interface\\Icons\\INV_Misc_Coin_01"
 local ICON_TURNIN = "Interface\\GossipFrame\\ActiveQuestIcon"
+local ICON_ACCEPT = "Interface\\GossipFrame\\AvailableQuestIcon"
 local ICON_OTHER = "Interface\\Icons\\INV_Misc_Bag_08"
 local ICON_STATUS = "Interface\\Icons\\INV_Misc_QuestionMark"
 local ICON_RESUME = "Interface\\Icons\\INV_Misc_Map_01"
@@ -985,6 +1114,9 @@ end
 local function StepTexture(step)
   if step.turnin then
     return ICON_TURNIN
+  end
+  if step.accept then
+    return ICON_ACCEPT
   end
   local texture = ItemTexture(step.itemid)
   if texture then
@@ -1226,12 +1358,14 @@ function QG:RenderCompact()
         badge = ICON_BUY
       elseif portrait and step.turnin then
         badge = ICON_TURNIN
+      elseif portrait and step.accept then
+        badge = ICON_ACCEPT
       elseif portrait then
         badge = ItemTexture(step.itemid)
       end
       if badge then
         b.badge:SetTexture(badge)
-        if badge == ICON_TURNIN then
+        if badge == ICON_TURNIN or badge == ICON_ACCEPT then
           b.badge:SetTexCoord(0, 1, 0, 1)
         else
           b.badge:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -1521,6 +1655,9 @@ events:SetScript("OnUpdate", function()
 
   if (this.arrowtick or 0) < now then
     this.arrowtick = now + 0.5
+    if pfDatabase.localized and pfQuest.questlog then
+      QG:FollowTourGuide()
+    end
     QG:UpdateArrow()
   end
 end)
@@ -1534,6 +1671,10 @@ SlashCmdList["PFQUESTGUIDE"] = function(msg)
     QG:TargetNext()
   elseif msg == "clear" then
     QG:SelectQuest(nil)
+  elseif msg == "tourguide" or msg == "tg" then
+    C.followtg = C.followtg == false
+    QG.tgStep = nil
+    Print("Following TourGuide's current quest: " .. (C.followtg and "|cff33ff33on" or "|cffff5555off") .. "|r.")
   elseif msg == "marks" then
     QG.markUsed = {}
     Print("Raid icon rotation reset.")
@@ -1541,6 +1682,7 @@ SlashCmdList["PFQUESTGUIDE"] = function(msg)
     Print("/pqg - show or hide the window")
     Print("/pqg target - target the next quest mob/NPC (same as the keybinding)")
     Print("/pqg clear - stop guiding the current quest")
+    Print("/pqg tourguide - turn following TourGuide's current quest on or off")
     Print("/pqg marks - start handing out raid icons from the first one again")
   else
     C.shown = C.shown == false

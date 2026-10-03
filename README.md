@@ -22,6 +22,7 @@ On *Beer Basted Boar Ribs* (Dun Morogh) you'd see:
 
 - **pfQuest** (required). Works with **pfQuest-octo** / **pfQuest-turtle**, but doesn't need them.
 - **pfUI** (optional). Without it, the window uses Blizzard-style borders.
+- **TourGuideVanilla** (optional). pfQuest Guide follows its current step.
 
 ## Install
 
@@ -37,6 +38,8 @@ On *Beer Basted Boar Ribs* (Dun Morogh) you'd see:
 - **Ctrl-click** any icon (or click the title bar of the full window) to pick from a list.
 
 The guided quest gets a yellow `>` in the pfQuest tracker, and your choice is remembered per character.
+
+**With TourGuide**: if [TourGuideVanilla](https://github.com/cralor/TourGuideVanilla) is installed, pfQuest Guide follows its current step automatically. Quest steps (accept, complete, turn in, and kill/note steps tied to a quest) switch the guided quest. *Accept* steps point the arrow at the quest giver with a **!** icon to target them, and switch to the quest's objectives once you've accepted it. Travel and hearth steps leave the current quest alone. A quest you pick by hand stays until TourGuide moves on to its next step. Turn this off or on with `/pqg tourguide`.
 
 **Mini view** (default): one icon per objective you still need.
 
@@ -58,6 +61,7 @@ Icons show the creature's portrait once you've targeted or moused over one this 
 | `/pqg` | show or hide the window |
 | `/pqg target` | same as the key binding (macro-friendly) |
 | `/pqg clear` | stop guiding the current quest |
+| `/pqg tourguide` | turn following TourGuide's current quest on or off |
 | `/pqg marks` | hand out raid icons from star again |
 | `/pqg help` | list the commands |
 

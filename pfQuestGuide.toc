@@ -5,7 +5,7 @@
 ## Version: 1.0
 ## X-Website: https://github.com/stokaidowg/pfQuestGuide
 ## Dependencies: pfQuest
-## OptionalDeps: pfUI, pfQuest-octo
+## OptionalDeps: pfUI, pfQuest-octo, TourGuideVanilla
 ## SavedVariablesPerCharacter: pfQuestGuide_config
 
 pfQuestGuide.lua
