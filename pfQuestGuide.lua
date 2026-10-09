@@ -381,8 +381,8 @@ function QG:ResolveQuest()
 
   -- pfQuest rebuilds its quest log a few seconds after login; only give up once it is running
   if pfQuest.lock and GetTime() > pfQuest.lock + 3 then
-    -- when following TourGuide, the next step takes over by itself
-    if not self:FollowingTourGuide() then
+    -- when following a guide, the next step takes over by itself
+    if not (self:FollowingTourGuide() or self:FollowingSnapGuide()) then
       Print("Stopped guiding |cffffcc00" .. (C.questtitle or "?") .. "|r - it is no longer in your quest log.")
     end
     C.quest, C.questtitle = nil, nil
@@ -971,9 +971,79 @@ function QG:FollowTourGuide()
   self:UpdateArrow()
 end
 
+-- [[ SnapGuide integration ]] --
+-- The same for SnapGuide's current step: its quest becomes the guided quest (so the icons and
+-- the target key work on that quest's mobs and NPCs), accept steps aim at the quest giver,
+-- and travel steps with a spot become the waypoint. SnapGuide wins over TourGuide.
+function QG:FollowingSnapGuide()
+  return C and C.followsg ~= false and SnapGuide and SnapGuide.step and true
+end
+
+local SG_ACTION = {
+  R = "Go to ", F = "Fly to ", H = "Hearth to ", P = "Get the flight path at ",
+  S = "Set your hearth at ", G = "Grind: ", B = "Buy ",
+}
+
+-- the quest id pfQuest uses for a step's quest: the step's own id, or whichever quest in
+-- the log has that title (chain parts can share a title and id lookups can differ)
+local function LogQuestID(id, title)
+  local log = pfQuest.questlog
+  if id and log[id] then
+    return id
+  end
+  for questid, entry in pairs(log) do
+    if entry.title == title then
+      return questid
+    end
+  end
+end
+
+function QG:FollowSnapGuide()
+  if not self:FollowingSnapGuide() then
+    return
+  end
+  local s = SnapGuide.step
+  local key = (SnapGuide.route and SnapGuide.route.id or "") .. ":" .. tostring(s.i)
+  if key == self.sgStep then
+    return
+  end
+
+  local id = s.q and LogQuestID(s.q, s.t)
+  if s.q and not id and s.a ~= "A" and SnapGuide.log and SnapGuide.log[s.t] then
+    return -- in the quest log, but pfQuest hasn't caught up yet: retry on the next tick
+  end
+
+  self.sgStep = key
+  self.waypoint = nil
+
+  if id and s.a ~= "X" then
+    if C.quest ~= id then
+      self:SelectQuest(id, true)
+    end
+    self.focusKey = nil
+  elseif s.a == "A" and s.q then
+    if not (self.accept and self.accept.id == s.q) then
+      self:SelectAccept(s.q, s.t)
+    end
+  elseif s.x then
+    self.waypoint = {
+      coords = { { s.x, s.y } },
+      map = s.z and pfMap:GetMapIDByName(s.z),
+      title = (SG_ACTION[s.a] or "") .. (s.t or s.n or ""),
+      desc = s.note or "",
+    }
+  end
+
+  if self.quest or self.waypoint then
+    self:AttachArrow()
+  end
+  self:Render()
+  self:UpdateArrow()
+end
+
 function QG:WaypointTip()
   local wp = self.waypoint
-  local tip = "TourGuide: " .. wp.title
+  local tip = (self:FollowingSnapGuide() and "SnapGuide: " or "TourGuide: ") .. wp.title
   if wp.desc and wp.desc ~= "" then
     tip = tip .. "\n|cffaaaaaa" .. wp.desc .. "|r"
   end
@@ -1286,9 +1356,29 @@ local function IconTooltip()
   GameTooltip:Show()
 end
 
+-- A dragged frame's position to save. On this client a frame kept on screen can come out
+-- of a drag with no anchor at all (it then vanishes and an empty position got saved, which
+-- broke the next login): pin it by its top-left corner instead.
+local function Anchor(frame)
+  local point, _, relpoint, x, y = frame:GetPoint()
+  if point and relpoint and x and y then
+    return { point, relpoint, x, y }
+  end
+  local left, top = frame:GetLeft(), frame:GetTop()
+  if left and top then
+    local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * scale, top * scale)
+    return { "TOPLEFT", "BOTTOMLEFT", left * scale, top * scale }
+  end
+end
+
+local function ValidPos(p)
+  return type(p) == "table" and type(p[1]) == "string" and type(p[2]) == "string" and tonumber(p[3]) and tonumber(p[4])
+end
+
 local function SaveBarPosition()
-  local point, _, relpoint, x, y = QG.bar:GetPoint()
-  C.barpos = { point, relpoint, x, y }
+  C.barpos = Anchor(QG.bar) or C.barpos
 end
 
 -- [[ portraits ]] --
@@ -1554,9 +1644,10 @@ function QG:CreateBar()
   bar:SetMovable(true)
   bar:SetClampedToScreen(true)
   bar:ClearAllPoints()
-  if C.barpos then
+  if ValidPos(C.barpos) then
     bar:SetPoint(C.barpos[1], UIParent, C.barpos[2], C.barpos[3], C.barpos[4])
   else
+    C.barpos = nil
     bar:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -260, -220)
   end
   bar:Hide()
@@ -1613,8 +1704,7 @@ function QG:InitDropDown()
 end
 
 local function SavePosition()
-  local point, _, relpoint, x, y = QG.frame:GetPoint()
-  C.pos = { point, relpoint, x, y }
+  C.pos = Anchor(QG.frame) or C.pos
 end
 
 function QG:CreatePanel()
@@ -1629,9 +1719,10 @@ function QG:CreatePanel()
   Backdrop(f)
 
   f:ClearAllPoints()
-  if C.pos then
+  if ValidPos(C.pos) then
     f:SetPoint(C.pos[1], UIParent, C.pos[2], C.pos[3], C.pos[4])
   else
+    C.pos = nil
     f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -260, -220)
   end
 
@@ -1781,7 +1872,11 @@ events:SetScript("OnUpdate", function()
   if (this.arrowtick or 0) < now then
     this.arrowtick = now + 0.5
     if pfDatabase.localized and pfQuest.questlog then
-      QG:FollowTourGuide()
+      if QG:FollowingSnapGuide() then
+        QG:FollowSnapGuide()
+      else
+        QG:FollowTourGuide()
+      end
     end
     QG:UpdateArrow()
   end
@@ -1800,6 +1895,10 @@ SlashCmdList["PFQUESTGUIDE"] = function(msg)
     C.followtg = C.followtg == false
     QG.tgStep = nil
     Print("Following TourGuide's current quest: " .. (C.followtg and "|cff33ff33on" or "|cffff5555off") .. "|r.")
+  elseif msg == "snapguide" or msg == "sg" then
+    C.followsg = C.followsg == false
+    QG.sgStep = nil
+    Print("Following SnapGuide's current step: " .. (C.followsg and "|cff33ff33on" or "|cffff5555off") .. "|r.")
   elseif msg == "marks" then
     QG.markUsed = {}
     Print("Raid icon rotation reset.")
@@ -1808,6 +1907,7 @@ SlashCmdList["PFQUESTGUIDE"] = function(msg)
     Print("/pqg target - target the next quest mob/NPC (same as the keybinding)")
     Print("/pqg clear - stop guiding the current quest")
     Print("/pqg tourguide - turn following TourGuide's current quest on or off")
+    Print("/pqg snapguide - turn following SnapGuide's current step on or off")
     Print("/pqg marks - start handing out raid icons from the first one again")
   else
     C.shown = C.shown == false

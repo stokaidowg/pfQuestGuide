@@ -2,6 +2,9 @@
 
 A small add-on for [pfQuest](https://github.com/shagu/pfQuest) on vanilla (1.12) servers such as **OctoWoW** and **Turtle WoW**.
 
+> [!WARNING]
+> **Made with AI.** This add-on was written by an AI (Claude, by Anthropic) using Claude Code. I'm not a programmer: I described what I wanted, played with it on OctoWoW, and reported problems back for the AI to fix. It has automated tests against a simulated WoW API, but some features have only been tried by me, and a few not in game at all yet, so expect bugs. Please report them under **Issues**.
+
 Pick one quest and pfQuest Guide takes it from there:
 
 - **The arrow follows that quest.** pfQuest's arrow points at the nearest spot that still matters for it: a mob that drops what you need, the vendor that sells it, or the NPC you turn it in to.
@@ -22,7 +25,7 @@ On *Beer Basted Boar Ribs* (Dun Morogh) you'd see:
 
 - **pfQuest** (required). Works with **pfQuest-octo** / **pfQuest-turtle**, but doesn't need them.
 - **pfUI** (optional). Without it, the window uses Blizzard-style borders.
-- **TourGuideVanilla** (optional). pfQuest Guide follows its current step.
+- **TourGuideVanilla** or **SnapGuide** (optional). pfQuest Guide follows the guide's current step (SnapGuide wins if both are on).
 
 ## Install
 
