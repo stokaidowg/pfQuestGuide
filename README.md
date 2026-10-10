@@ -82,3 +82,8 @@ Please open an [issue](../../issues) with a screenshot and the quest name.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Update notices
+
+If someone in your party, raid or guild has a newer version of one of these add-ons, you get one line in chat with a link to its download page. To do that, the add-ons send each other their version numbers (only those) over the game's add-on channel.
+

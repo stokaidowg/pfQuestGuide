@@ -1914,3 +1914,6 @@ SlashCmdList["PFQUESTGUIDE"] = function(msg)
     QG:Render()
   end
 end
+
+-- update notices (version.lua)
+if SnapVersions then SnapVersions.Register("pfQuestGuide") end

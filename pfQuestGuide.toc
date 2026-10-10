@@ -2,10 +2,11 @@
 ## Title: |cff33ffccpf|cffffffffQuest |cffffcc00Guide
 ## Notes: Guide one quest at a time: pfQuest's arrow points at its objectives, and buttons target (and raid-mark) the quest's mobs and NPCs.
 ## Author: Stokaido
-## Version: 1.0
+## Version: 1.1
 ## X-Website: https://github.com/stokaidowg/pfQuestGuide
 ## Dependencies: pfQuest
 ## OptionalDeps: pfUI, pfQuest-octo, TourGuideVanilla
 ## SavedVariablesPerCharacter: pfQuestGuide_config
 
+version.lua
 pfQuestGuide.lua
